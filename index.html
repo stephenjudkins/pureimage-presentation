@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang='en'>
+  <head>
+    <meta charset='utf-8'>
+    <title>PureImage: raster image processing for Scala</title>
+    <meta content='black-translucent' name='apple-mobile-web-app-status-bar-style'>
+    <meta content='width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no' name='viewport'>
+    <link href='css/reveal.min.css' rel='stylesheet'>
+    <link href='css/theme/default.css' id='theme' rel='stylesheet'>
+    <!-- For syntax highlighting -->
+    <link href='lib/css/zenburn.css' rel='stylesheet'>
+    <!-- If the query includes 'print-pdf', use the PDF print sheet -->
+    <script>
+      document.write( '<link rel="stylesheet" href="css/print/' + ( window.location.search.match( /print-pdf/gi ) ? 'pdf' : 'paper' ) + '.css" type="text/css" media="print">' );
+    </script>
+    <!--[if lt IE 9]>
+      <script src="lib/js/html5shiv.js"></script>
+    <![endif]-->
+  </head>
+  <body>
+    <div class='reveal'>
+      <div class='slides'>
+        <section>
+          <h1>PureImage: raster image processing for Scala</h1>
+        </section>
+        <section>
+          <h2>The problem</h2>
+          <h3>Available image libraries are difficult to use</h3>
+        </section>
+        <section>
+          <h3>They feature byzantive and opaque APIs</h3>
+          <img src='images/bufferedimage-api.png'>
+        </section>
+        <section>
+          <h3>Mutable data structures</h3>
+          <div>(I'm preaching to the choir here)</div>
+        </section>
+        <section>
+          <h3>Or require concrete representations of images</h3>
+          <pre><code class='c'>Image *ConstituteImage(&#x000A;  const size_t columns,&#x000A;  const size_t rows,&#x000A;  const char *map,&#x000A;  const StorageType storage,&#x000A;  const void *pixels,&#x000A;  ExceptionInfo *exception&#x000A;)</code></pre>
+        </section>
+        <section>
+          <h3>But what, exactly, is a raster image?</h3>
+        </section>
+        <section>
+          <h2>Images are simple things</h2>
+          <h3 class='fragment'>Let's give them a simple representation</h3>
+        </section>
+        <section>
+          <pre><code class='scala'>trait Image[A] {&#x000A;  def width: Int&#x000A;  def height: Int&#x000A;  def apply(x: Int, y: Int):A&#x000A;}</code></pre>
+        </section>
+        <section>
+          <h2>PureImage</h2>
+          <ul>
+            <li class='fragment'>Simple</li>
+            <li class='fragment'>(Mostly) purely functional</li>
+            <li class='fragment'>Fun</li>
+          </ul>
+        </section>
+        <section>
+          <h2>parsing</h2>
+          <pre><code class='scala'>package ps.tricerato.pureimage&#x000A;&#x000A;sealed trait ReadError&#x000A;case object UnsupportedImageType extends ReadError&#x000A;case class ReadException(e: Exception) extends ReadError&#x000A;&#x000A;sealed trait LoadedImage&#x000A;case class RGBImage(image: Image[RGB]) extends LoadedImage&#x000A;case class RGBAImage(image: Image[RGBA]) extends LoadedImage&#x000A;case class GrayImage(image: Image[Gray]) extends LoadedImage&#x000A;&#x000A;object Input {&#x000A;  def apply(data: Array[Byte]):Either[ReadError, LoadedImage] = ???&#x000A;}</code></pre>
+        </section>
+        <section>
+          <h2>Colors</h2>
+          <ul>
+            <li>Overall API is generic; we can represent a pixel as everything</li>
+            <li>For import/export, we support three types of pixels.</li>
+            <li>Internal represenation is as Ints:</li>
+          </ul>
+        </section>
+        <section>
+          <pre><code class='scala'>case class RGB(i: Int) extends AnyVal {&#x000A;  def red = (i & 0xff)&#x000A;  def green = ((i >> 8) & 0xff)&#x000A;  def blue = ((i >> 16) & 0xff)&#x000A;}&#x000A;case class RGBA(i: Int) extends AnyVal {&#x000A;  def red = (i & 0xff).toByte&#x000A;  def green = ((i >> 8) & 0xff).toByte&#x000A;  def blue = ((i >> 16) & 0xff).toByte&#x000A;  def alpha = ((i >> 24) & 0xff).toByte&#x000A;}&#x000A;case class Gray(i: Int) extends AnyVal {&#x000A;  def white = (i & 0xff).toByte&#x000A;}&#x000A;</code></pre>
+        </section>
+        <section>
+          <div>How can we work with pixels whose representation may be completely arbitrary in a generic way?</div>
+        </section>
+        <section>
+          <h2>Typeclasses</h2>
+        </section>
+        <section>
+          <pre><code class='scala'>trait Pixel[A] {&#x000A;  def sum(a: A, b: A):A&#x000A;  def fade(p: A, f: Float):A&#x000A;  def zero: A&#x000A;}&#x000A;&#x000A;def f[A : Pixel](image: Image[A]) = {&#x000A;  val ops = image.ops&#x000A;  ...&#x000A;}&#x000A;</code></pre>
+        </section>
+        <section>
+          <h2>Output</h2>
+          <ul>
+            <li class='fragment'>Arbitrary number of pixel types</li>
+            <li class='fragment'>Arbitrary number of image formats</li>
+            <li class='fragment'>Many output formats don't support some pixel types (JPEG doesn't support an Alpha channel)</li>
+            <li class='fragment'>The solution?</li>
+          </ul>
+        </section>
+        <section>
+          <h2>Typeclasses</h2>
+        </section>
+        <section>
+          <pre><code class='scala'>trait OutputFormat&#x000A;case class JPEG(quality: Int) extends OutputFormat&#x000A;object PNG extends OutputFormat&#x000A;object GIF extends OutputFormat&#x000A;&#x000A;trait Output[I, O <: OutputFormat] {&#x000A;  def apply(i: Image[I], o: O):Array[Byte]&#x000A;}</code></pre>
+        </section>
+        <section>
+          <h2>Let's try something...</h2>
+          <div class='fragment'>First, we need a picture.</div>
+        </section>
+        <section>
+          <pre><code class='scala'>Input(resource("/zardoz.jpeg")) match {&#x000A;  case Right(RGBImage(image)) => image&#x000A;  case _ => ???&#x000A;}</code></pre>
+          <img class='fragment' src='images/zardoz.png'>
+          <div class='fragment'>This will do.</div>
+        </section>
+        <section data-transition='none'>
+          <img src='images/fib1.png'>
+          <pre><code class='scala'>def fib1[A : Pixel](image: Image[A]):Image[A] = {&#x000A;  import filter._&#x000A;  val square = squareCrop(image)&#x000A;  new Image[A] {&#x000A;    def width = (square.width * PHI).toInt; def height = square.height&#x000A;    def apply(x: Int, y: Int) = if (x >= square.width) {&#x000A;        image.ops.zero&#x000A;      } else {&#x000A;        image(x,y)&#x000A;      }&#x000A;    }&#x000A;}</code></pre>
+        </section>
+        <section data-transition='none'>
+          <img src='images/fib2.png'>
+          <pre><code class='scala'>def fib2[A : Pixel](image: Image[A]):Image[A] = {&#x000A;  import filter._&#x000A;  val square = squareCrop(image)&#x000A;  new Image[A] {&#x000A;    def width = (square.width * PHI).toInt; def height = square.height&#x000A;    def apply(x: Int, y: Int) = {&#x000A;      val flipped = Rotate(Rotate.Clockwise90, image)&#x000A;      if (x >= square.width) {&#x000A;        flipped(x - square.width, y)&#x000A;      } else {&#x000A;        image(x,y)&#x000A;      }&#x000A;    }&#x000A;  }&#x000A;}</code></pre>
+        </section>
+        <section data-transition='none'>
+          <img src='images/fib3.png'>
+          <pre><code class='scala'>def fib3[A : Pixel](image: Image[A]):Image[A] = {&#x000A;  import filter._&#x000A;  val square = squareCrop(image)&#x000A;  new Image[A] {&#x000A;    def width = (square.width * PHI).toInt; def height = square.height&#x000A;    def apply(x: Int, y: Int) = {&#x000A;      lazy val flipped = Rotate(Rotate.Clockwise90, fib3(image))&#x000A;      if (x >= square.width) {&#x000A;        flipped(x - square.width, y)&#x000A;      } else {&#x000A;        image(x,y)&#x000A;      }&#x000A;    }&#x000A;  }&#x000A;}</code></pre>
+        </section>
+        <section data-transition='none'>
+          <img src='images/fib4.png'>
+          <pre><code class='scala'>def fib4[A : Pixel](image: Image[A]):Image[A] = {&#x000A;  import filter._&#x000A;  val square = squareCrop(image)&#x000A;  new Image[A] {&#x000A;    def width = (square.width * PHI).toInt; def height = square.height&#x000A;    def apply(x: Int, y: Int) = {&#x000A;      lazy val flipped = Rotate(Rotate.Clockwise90, fib4(image))&#x000A;      lazy val scaled = scale(&#x000A;        flipped.height.toFloat / image.height,&#x000A;        flipped&#x000A;      )&#x000A;      if (x >= square.width) {&#x000A;        scaled(x - square.width, y)&#x000A;      } else {&#x000A;        image(x,y)&#x000A;      }&#x000A;    }&#x000A;  }&#x000A;}</code></pre>
+        </section>
+        <section data-transition='none'>
+          <img src='images/fib5.png'>
+          <pre><code class='scala'>def fib5[A : Pixel](image: Image[A]):Image[A] = {&#x000A;  import filter._&#x000A;  val square = squareCrop(image)&#x000A;  new Image[A] {&#x000A;    def width = (square.width * PHI).toInt; def height = square.height&#x000A;    def apply(x: Int, y: Int) = {&#x000A;      lazy val flipped = Rotate(Rotate.Clockwise90, fib4(image))&#x000A;      lazy val filtered = Lanczos(PHI.toFloat * 2)(flipped)&#x000A;      lazy val scaled = scale(flipped.height.toFloat / image.height, filtered)&#x000A;      if (x >= square.width) {&#x000A;        scaled(x - square.width, y)&#x000A;      } else {&#x000A;        image(x,y)&#x000A;      }&#x000A;    }&#x000A;  }&#x000A;}&#x000A;</code></pre>
+        </section>
+        <section>
+          <h2>Included filters</h2>
+          <ul>
+            <li>Lanczos</li>
+            <li>Translate</li>
+            <li>Scale</li>
+            <li>Crop</li>
+            <li>Alpha blending</li>
+            <li>Whatever you want to write</li>
+          </ul>
+        </section>
+        <section>
+          <h2>Lanczos filtering</h2>
+          <img src='images/lanczos-graph.svg' style='background: white;'>
+        </section>
+        <section data-transition='none'>
+          <img src='images/unfiltered.jpeg'>
+        </section>
+        <section data-transition='none'>
+          <img src='images/filtered.jpeg'>
+        </section>
+        <section>
+          <h2>Problems</h2>
+        </section>
+        <section>
+          <h3>External image libraries</h3>
+          <ul>
+            <li class='fragment'>Everything is terrible</li>
+            <li class='fragment'>Java/AWT imaging: crazy and buggy</li>
+            <li class='fragment'>Apache Imaging: slow</li>
+            <li class='fragment'>C libraries: they are written in C</li>
+          </ul>
+        </section>
+        <section>
+          <h3>Boxing</h3>
+          <img src='images/boxing.jpg'>
+        </section>
+        <section>
+          <h4>In production, no single optimization proved as fruitful as avoiding boxing</h4>
+          <ul>
+            <li class='fragment'>Image processing involves very many small calculations</li>
+            <li class='fragment'>Allocation, incrementing heap pointers, and triggering (generational) GC aren't that expensive...</li>
+            <li class='fragment'>But they're more expensive than bitwise operations of primitives on the stack</li>
+            <li class='fragment'>Hence, boxing-related overhead can quickly dominate</li>
+          </ul>
+        </section>
+        <section>
+          <ul>
+            <li class='fragment'>Generics work well</li>
+            <li class='fragment'>Specialization works well</li>
+            <li class='fragment'>Value classes work well</li>
+            <li class='fragment'>They don't work well together [SI-5611]</li>
+          </ul>
+        </section>
+        <section>
+          <pre><code class='scala'>clasee WrappedInt(val i: Int) extends AnyVal&#x000A;&#x000A;def fooRaw(i: Int) = ??? // no boxing&#x000A;&#x000A;def fooWrapped(w: WrappedInt) = ??? // no boxing&#x000A;&#x000A;def fooGeneric[@specialized(Int) A](i: I) = ???&#x000A;fooGeneric(42) // no boxing&#x000A;&#x000A;fooGeneric(WrappedInt(42)) // boxing!&#x000A;</code></pre>
+        </section>
+        <section>
+          <h2>Thanks!</h2>
+          <ul>
+            <li>Stephen Judkins</li>
+            <li>@stephenjudkins</li>
+            <li>https://github.com/stephenjudkins/pureimage</li>
+            <li>http://tricerato.ps</li>
+          </ul>
+        </section>
+      </div>
+    </div>
+    <script src='lib/js/head.min.js'></script>
+    <script src='js/reveal.min.js'></script>
+    <script>
+      // Full list of configuration options available here:
+      // https://github.com/hakimel/reveal.js#configuration
+      Reveal.initialize({
+        controls: true,
+        progress: true,
+        history: true,
+        center: true,
+      
+        theme: Reveal.getQueryHash().theme, // available themes are in /css/theme
+        transition: Reveal.getQueryHash().transition || 'linear', // default/cube/page/concave/zoom/linear/fade/none
+      
+        // Optional libraries used to extend on reveal.js
+        dependencies: [
+          { src: 'lib/js/classList.js', condition: function() { return !document.body.classList; } },
+          { src: 'plugin/markdown/marked.js', condition: function() { return !!document.querySelector( '[data-markdown]' ); } },
+          { src: 'plugin/markdown/markdown.js', condition: function() { return !!document.querySelector( '[data-markdown]' ); } },
+          { src: 'plugin/highlight/highlight.js', async: true, callback: function() { console.log("load!"); hljs.initHighlightingOnLoad(); } },
+          { src: 'plugin/zoom-js/zoom.js', async: true, condition: function() { return !!document.body.classList; } },
+          { src: 'plugin/notes/notes.js', async: true, condition: function() { return !!document.body.classList; } }
+        ]
+      });
+    </script>
+  </body>
+</html>
